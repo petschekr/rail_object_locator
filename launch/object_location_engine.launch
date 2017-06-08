@@ -1,0 +1,26 @@
+<launch>
+    <!-- Object detection -->
+    <arg name="image_sub_topic_name" default="/kinect/hd/image_color" />
+	<arg name="max_desired_publish_freq" default="1.0" />
+	<arg name="datacfg_filename" default="$(find rail_object_detector)/libs/darknet/cfg/coco.data" />
+	<arg name="cfg_filename" default="$(find rail_object_detector)/libs/darknet/cfg/yolo.cfg" />
+	<arg name="weight_filename" default="$(find rail_object_detector)/libs/darknet/yolo.weights" />
+
+	<node pkg="rail_object_detector" type="detector_node" name="detector_node">
+		<param name="num_service_threads" type="int" value="0" />
+		<param name="use_scene_service" type="bool" value="true" />
+		<param name="use_image_service" type="bool" value="false" />
+		<param name="publish_detections_topic" type="bool" value="false" />
+		<param name="image_sub_topic_name" type="string" value="$(arg image_sub_topic_name)" />
+		<param name="max_desired_publish_freq" type="double" value="$(arg max_desired_publish_freq)" />
+		<param name="probability_threshold" type="double" value="0.25" />
+		<param name="datacfg_filename" type="string" value="$(arg datacfg_filename)" />
+		<param name="cfg_filename" type="string" value="$(arg cfg_filename)" />
+		<param name="weight_filename" type="string" value="$(arg weight_filename)" />
+	</node>
+
+    <!-- Object location engine -->
+    <node pkg="object_location" type="object_locator" name="object_location_engine" output="screen">    
+        <param name="object_detector_service" value="/detector_node/objects_in_scene" />
+    </node>
+</launch>

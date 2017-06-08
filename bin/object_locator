@@ -1,0 +1,7 @@
+#!/usr/bin/env python
+from object_location.object_location_engine import *
+import rospy
+
+if __name__ == "__main__":
+    rospy.init_node("object_locator")
+    ObjectLocationEngine()
