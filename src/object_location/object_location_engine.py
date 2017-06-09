@@ -1,6 +1,8 @@
+import numpy
 import rospy
 import sensor_msgs.point_cloud2 as pc2
 import tf
+import tf2_ros
 from geometry_msgs.msg import Point, Pose, Quaternion
 from object_location.msg import Object
 from object_location.srv import LocationQuery, LocationQueryResponse
@@ -13,7 +15,7 @@ class ObjectLocationEngine():
 
     def __init__(self):
         self.object_detector_srv = rospy.get_param("~object_detector_service", "/detector_node/objects_in_scene")
-        self.global_frame = rospy.get_param("~global_frame", "kinect_rgb_optical_frame")
+        self.global_frame = rospy.get_param("~global_frame", "map")
         self.publish_to_tf_tree = rospy.get_param("~publish_as_tf", True)
         
         if self.publish_to_tf_tree:
@@ -22,6 +24,10 @@ class ObjectLocationEngine():
         rospy.loginfo("Waiting for object detector service...")
         rospy.wait_for_service(self.object_detector_srv)
         rospy.loginfo("Object detector service loaded")
+
+        self.tfBuffer = tf2_ros.Buffer()
+        self.tfListener = tf2_ros.TransformListener(self.tfBuffer)
+        self.tfBroadcaster = tf.TransformBroadcaster()
 
         # Incoming messages and services
         self.objects = []
@@ -34,21 +40,26 @@ class ObjectLocationEngine():
         self.main_query_service = rospy.Service("location_query", LocationQuery, self.handleLocationQuery)
 
         if self.publish_to_tf_tree:
-            tfBroadcaster = tf.TransformBroadcaster()
+            self.tfBroadcaster = tf.TransformBroadcaster()
             rate = rospy.Rate(5)
             while not rospy.is_shutdown():
                 for item in self.objects:
                     position = (item.pose.position.x,
                                 item.pose.position.y,
                                 item.pose.position.z)
-                    rotation = (0, 0, 0, 1)
+                    rotation = (item.pose.orientation.x,
+                                item.pose.orientation.y,
+                                item.pose.orientation.z,
+                                item.pose.orientation.w,)
 
-                    tfBroadcaster.sendTransform(position, rotation, rospy.Time.now(), item.label, self.global_frame)
+                    self.tfBroadcaster.sendTransform(position, rotation, rospy.Time.now(), item.label, self.global_frame)
                 rate.sleep()
         else:
             rospy.spin()
     
     def handleLocationQuery(self, req):
+        self.objects = []
+
         rospy.loginfo("Sending query...")
         result = self.object_detector()
         rospy.loginfo("Query result received of length {}".format(len(result.objects)))
@@ -57,8 +68,6 @@ class ObjectLocationEngine():
             rospy.logwarn("No depth frame processed yet")
             return
 
-        self.objects = []
-        tfBroadcaster = tf.TransformBroadcaster()
 
         for item in result.objects:
             positionTuple = self.frame[item.centroid_y][item.centroid_x]
@@ -70,9 +79,25 @@ class ObjectLocationEngine():
             (remappedObject.pose.position.x,
              remappedObject.pose.position.y,
              remappedObject.pose.position.z) = positionTuple
+            rotationTuple = (0, 0, 0, 1) # No rotation for now
 
             print("Found \"{}\" with probability {} and centroid (x: {}, y: {})".format(item.label, item.probability, item.centroid_x, item.centroid_y))
             print("Full 3D position for this object is:\n{}".format(remappedObject.pose.position))
+
+            # Find absolute position for this object
+            now = rospy.Time.now()
+            self.tfBroadcaster.sendTransform(positionTuple, rotationTuple, now, item.label, "kinect_rgb_optical_frame")
+            absoluteTransform =  self.tfBuffer.lookup_transform(self.global_frame, item.label, rospy.Time(0), timeout=rospy.Duration(5)).transform
+
+            (remappedObject.pose.position.x,
+             remappedObject.pose.position.y,
+             remappedObject.pose.position.z) = (absoluteTransform.translation.x, absoluteTransform.translation.y, absoluteTransform.translation.z)
+             
+            (remappedObject.pose.orientation.x,
+             remappedObject.pose.orientation.y,
+             remappedObject.pose.orientation.z,
+             remappedObject.pose.orientation.w) = rotationTuple
+            # (absoluteTransform.rotation.x, absoluteTransform.rotation.y, absoluteTransform.rotation.z, absoluteTransform.rotation.w)
 
             self.objects.append(remappedObject)
 

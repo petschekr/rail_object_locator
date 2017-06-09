@@ -23,6 +23,6 @@
     <node pkg="object_location" type="object_locator" name="object_location_engine" output="screen">    
         <param name="object_detector_service" value="/detector_node/objects_in_scene" />
 		<param name="publish_as_tf" value="true" />
-		<param name="global_frame" value="kinect_rgb_optical_frame" />
+		<param name="global_frame" value="map" />
     </node>
 </launch>
