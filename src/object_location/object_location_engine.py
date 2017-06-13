@@ -4,7 +4,7 @@ import sensor_msgs.point_cloud2 as pc2
 import tf
 import tf2_ros
 from geometry_msgs.msg import Point, Pose, Quaternion
-from object_location.msg import Object
+from object_location.msg import Object, Objects
 from object_location.srv import LocationQuery, LocationQueryResponse
 from rail_object_detector.srv import SceneQuery
 from sensor_msgs.msg import PointCloud2
@@ -38,6 +38,7 @@ class ObjectLocationEngine():
 
         # Outgoing messages and services
         self.main_query_service = rospy.Service("location_query", LocationQuery, self.handleLocationQuery)
+        self.object_publisher = rospy.Publisher("object_location", Objects, queue_size=1)
 
         if self.publish_to_tf_tree:
             self.tfBroadcaster = tf.TransformBroadcaster()
@@ -53,6 +54,8 @@ class ObjectLocationEngine():
                                 item.pose.orientation.w,)
 
                     self.tfBroadcaster.sendTransform(position, rotation, rospy.Time.now(), item.label, self.global_frame)
+
+                self.object_publisher.publish(Objects(objects=self.objects))
                 rate.sleep()
         else:
             rospy.spin()
