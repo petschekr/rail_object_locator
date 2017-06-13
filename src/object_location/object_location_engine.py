@@ -103,6 +103,7 @@ class ObjectLocationEngine():
             # (absoluteTransform.rotation.x, absoluteTransform.rotation.y, absoluteTransform.rotation.z, absoluteTransform.rotation.w)
 
             self.objects.append(remappedObject)
+        self.object_publisher.publish(Objects(objects=self.objects))
 
         result = LocationQueryResponse()
         result.header = Header()
