@@ -31,6 +31,7 @@ class ObjectLocationEngine():
 
         # Incoming messages and services
         self.objects = []
+        self.pointClouds = []
         self.object_detector = rospy.ServiceProxy(self.object_detector_srv, SceneQuery)
         
         self.frame = None
@@ -56,6 +57,10 @@ class ObjectLocationEngine():
                     self.tfBroadcaster.sendTransform(position, rotation, rospy.Time.now(), item.label, self.global_frame)
 
                 self.object_publisher.publish(Objects(objects=self.objects))
+                
+                for pointCloud in self.pointClouds:
+                    # This is published mostly as a way to debug the segmented point clouds in RViz
+                    rospy.Publisher("object_location_cloud/{}".format(pointCloud["label"]), PointCloud2, queue_size=1).publish(pointCloud["pointCloud"])
                 rate.sleep()
         else:
             rospy.spin()
@@ -75,9 +80,23 @@ class ObjectLocationEngine():
         for item in result.objects:
             positionTuple = self.frame[item.centroid_y][item.centroid_x]
 
+            croppedPoints = []
+            for y in xrange(item.right_top_y, item.left_bot_y):
+                for x in xrange(item.left_bot_x, item.right_top_x):
+                    croppedPoints.append(self.frame[y][x])
+            
+            croppedPointCloud = pc2.create_cloud_xyz32(Header(frame_id="kinect_rgb_optical_frame"), croppedPoints)
+
+            self.pointClouds.append({
+                "label": item.label,
+                "probability": item.probability,
+                "pointCloud": croppedPointCloud
+            })
+
             remappedObject = Object()
             remappedObject.label = item.label
             remappedObject.probability = item.probability
+            remappedObject.cloud = croppedPointCloud
 
             (remappedObject.pose.position.x,
              remappedObject.pose.position.y,
@@ -90,7 +109,7 @@ class ObjectLocationEngine():
             # Find absolute position for this object
             now = rospy.Time.now()
             self.tfBroadcaster.sendTransform(positionTuple, rotationTuple, now, item.label, "kinect_rgb_optical_frame")
-            absoluteTransform =  self.tfBuffer.lookup_transform(self.global_frame, item.label, rospy.Time(0), timeout=rospy.Duration(5)).transform
+            absoluteTransform = self.tfBuffer.lookup_transform(self.global_frame, item.label, rospy.Time(0), timeout=rospy.Duration(5)).transform
 
             (remappedObject.pose.position.x,
              remappedObject.pose.position.y,
