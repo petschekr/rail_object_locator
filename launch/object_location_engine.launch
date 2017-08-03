@@ -12,7 +12,8 @@
 	</include>
 
 	<include file="$(find handle_detector)/launch/localization_sensor.launch" if="$(arg launch_handle_detector)">
-		<!-- <arg name="as_service" value="true" /> -->
+		 <arg name="as_service" value="true" /> 
+		 <arg name="publish_transforms" value="false" />
 	</include>
 
 	<!-- Object location engine -->
