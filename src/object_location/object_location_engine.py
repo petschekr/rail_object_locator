@@ -85,6 +85,12 @@ class ObjectLocationEngine():
             return
 
         for item in result.objects:
+            item.label = item.label.replace(" ", "_")
+            # Handle cases where there might be multiple objects with the same label
+            existingLabels = sum(1 for x in self.objects if x.label == item.label)
+            if existingLabels > 0:
+                item.label = "{}_{}".format(item.label, existingLabels)
+
             positionTuple = self.frame[item.centroid_y][item.centroid_x]
             rotationTuple = (0, 0, 0, 1)
 
@@ -102,11 +108,7 @@ class ObjectLocationEngine():
             })
 
             remappedObject = Object()
-            existingLabels = sum(1 for x in self.objects if x.label == item.label)
-            if existingLabels == 0:
-                remappedObject.label = item.label
-            else:
-                remappedObject.label = "{}_{}".format(item.label, existingLabels)
+            remappedObject.label = item.label
             remappedObject.probability = item.probability
             remappedObject.cloud = croppedPointCloud
 
