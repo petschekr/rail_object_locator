@@ -3,7 +3,8 @@ import rospy
 import sensor_msgs.point_cloud2 as pc2
 import tf
 import tf2_ros
-from geometry_msgs.msg import Point, Pose, Quaternion
+from geometry_msgs.msg import Point, Pose, PoseStamped
+from handle_detector.srv import HandleQuery
 from object_location.msg import Object, Objects
 from object_location.srv import LocationQuery, LocationQueryResponse
 from rail_object_detector.srv import SceneQuery
@@ -15,6 +16,7 @@ class ObjectLocationEngine():
 
     def __init__(self):
         self.object_detector_srv = rospy.get_param("~object_detector_service", "/detector_node/objects_in_scene")
+        self.handle_detector_srv = rospy.get_param("~handle_detector_service", "/localization/handle_query");
         self.global_frame = rospy.get_param("~global_frame", "map")
         self.publish_to_tf_tree = rospy.get_param("~publish_as_tf", True)
         
@@ -33,6 +35,7 @@ class ObjectLocationEngine():
         self.objects = []
         self.pointClouds = []
         self.object_detector = rospy.ServiceProxy(self.object_detector_srv, SceneQuery)
+        self.handle_detector = rospy.ServiceProxy(self.handle_detector_srv, HandleQuery)
         
         self.frame = None
         rospy.Subscriber("/kinect/hd/points", PointCloud2, self.pointCloudUpdate, queue_size=1)
@@ -68,17 +71,22 @@ class ObjectLocationEngine():
     def handleLocationQuery(self, req):
         self.objects = []
 
-        rospy.loginfo("Sending query...")
+        rospy.loginfo("Sending query to rail_object_detector...")
         result = self.object_detector()
         rospy.loginfo("Query result received of length {}".format(len(result.objects)))
+
+        rospy.loginfo("Sending query to handle_detector...")
+        handleResult = self.handle_detector()
+        rospy.loginfo("Query result received of length {}".format(len(handleResult.handles)))
+        mergedHandles = []
         
         if self.frame is None:
             rospy.logwarn("No depth frame processed yet")
             return
 
-
         for item in result.objects:
             positionTuple = self.frame[item.centroid_y][item.centroid_x]
+            rotationTuple = (0, 0, 0, 1)
 
             croppedPoints = []
             for y in xrange(item.right_top_y, item.left_bot_y):
@@ -94,7 +102,11 @@ class ObjectLocationEngine():
             })
 
             remappedObject = Object()
-            remappedObject.label = item.label
+            existingLabels = sum(1 for x in self.objects if x.label == item.label)
+            if existingLabels == 0:
+                remappedObject.label = item.label
+            else:
+                remappedObject.label = "{}_{}".format(item.label, existingLabels)
             remappedObject.probability = item.probability
             remappedObject.cloud = croppedPointCloud
 
@@ -106,7 +118,7 @@ class ObjectLocationEngine():
             print("Found \"{}\" with probability {} and centroid (x: {}, y: {})".format(item.label, item.probability, item.centroid_x, item.centroid_y))
             print("Full 3D position for this object is:\n{}".format(remappedObject.pose.position))
 
-            # Find absolute position for this object
+            # Find absolute position for this object (in map frame)
             now = rospy.Time.now()
             self.tfBroadcaster.sendTransform(positionTuple, rotationTuple, now, item.label, "kinect_rgb_optical_frame")
             absoluteTransform = self.tfBuffer.lookup_transform(self.global_frame, item.label, rospy.Time(0), timeout=rospy.Duration(5)).transform
@@ -119,9 +131,40 @@ class ObjectLocationEngine():
              remappedObject.pose.orientation.y,
              remappedObject.pose.orientation.z,
              remappedObject.pose.orientation.w) = rotationTuple
-            # (absoluteTransform.rotation.x, absoluteTransform.rotation.y, absoluteTransform.rotation.z, absoluteTransform.rotation.w)
+            
+            MATCHING_DISTANCE = 0.1
+            for handleItem in handleResult.handles:
+                if handleItem in mergedHandles:
+                    continue
+                
+                xThresholdSatisfied = abs(remappedObject.pose.position.x - handleItem.pose.position.x) < MATCHING_DISTANCE
+                yThresholdSatisfied = abs(remappedObject.pose.position.y - handleItem.pose.position.y) < MATCHING_DISTANCE
+                zThresholdSatisfied = abs(remappedObject.pose.position.z - handleItem.pose.position.z) < MATCHING_DISTANCE
+
+                if xThresholdSatisfied and yThresholdSatisfied and zThresholdSatisfied:
+                    remappedObject.pose.orientation = handleItem.pose.orientation;
+                    print("Found matching handle, setting rotation to (x: {}, y: {}, z: {}, w: {})".format(
+                        remappedObject.pose.orientation.x,
+                        remappedObject.pose.orientation.y,
+                        remappedObject.pose.orientation.z,
+                        remappedObject.pose.orientation.w
+                    ))
+                    mergedHandles.append(handleItem)
 
             self.objects.append(remappedObject)
+        # Add handles without corresponding detector results as objects
+        for i, handleItem in enumerate(handleResult.handles):
+            if handleItem in mergedHandles:
+                continue
+
+            remappedObject = Object()
+            remappedObject.label = "handle_object_{}".format(i)
+            remappedObject.probability = 0
+            remappedObject.cloud = PointCloud2()
+            remappedObject.pose.position = handleItem.pose.position
+            remappedObject.pose.orientation = handleItem.pose.orientation
+            self.objects.append(remappedObject)
+
         self.object_publisher.publish(Objects(objects=self.objects))
 
         result = LocationQueryResponse()

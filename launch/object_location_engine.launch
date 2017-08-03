@@ -1,6 +1,7 @@
 <launch>
     <!-- Object detection -->
 	<arg name="launch_detector" default="true" />
+	<arg name="launch_handle_detector" default="true" />
 
 	<include file="$(find rail_object_detector)/launch/detector.launch" if="$(arg launch_detector)">
 		<arg name="image_sub_topic_name" value="/kinect/hd/image_color" />
@@ -8,6 +9,10 @@
 		<arg name="classnames_filename" value="$(find rail_object_detector)/libs/darknet/data/coco.names" />
 		<arg name="cfg_filename" value="$(find rail_object_detector)/libs/darknet/cfg/yolo.cfg" />
 		<arg name="weight_filename" value="$(find rail_object_detector)/libs/darknet/yolo.weights" />
+	</include>
+
+	<include file="$(find handle_detector)/launch/localization_sensor.launch" if="$(arg launch_handle_detector)">
+		<!-- <arg name="as_service" value="true" /> -->
 	</include>
 
 	<!-- Object location engine -->
